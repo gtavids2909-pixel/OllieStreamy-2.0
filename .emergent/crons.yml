@@ -1,0 +1,8 @@
+crons:
+  - name: livetv-refresh
+    description: "Refreshes the live-TV channel catalog from iptv-org every 24h"
+    cron: "0 4 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/livetv-refresh"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
