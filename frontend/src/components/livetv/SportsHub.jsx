@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { Trophy, Clapperboard, Loader2 } from 'lucide-react';
 import ChannelCard from './ChannelCard';
 import Fixtures from './Fixtures';
-import CuratedSports from './CuratedSports';
 import { j } from '../../lib/livetv';
 
 export const SPORTS = ['Football', 'Basketball', 'American Football', 'Baseball', 'Hockey', 'Cricket', 'Motorsport', 'Combat', 'Tennis', 'Rugby', 'Golf', 'Other'];
@@ -59,8 +58,6 @@ export default function SportsHub({ tick, status, counts, sport, setSport, onPic
           </div>
         )}
       </section>
-
-      <div className="mt-8"><CuratedSports /></div>
     </div>
   );
 }
