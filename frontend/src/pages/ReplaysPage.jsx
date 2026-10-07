@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Clapperboard, Search, ExternalLink, Youtube, Archive, Loader2 } from 'lucide-react';
+import { Clapperboard, Search, ExternalLink, Youtube, Archive, Loader2, PlayCircle } from 'lucide-react';
+import ReplayPlayer from '../components/replays/ReplayPlayer';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import LogoTile, { favicon } from '../components/LogoTile';
@@ -7,9 +8,10 @@ import { j } from '../lib/livetv';
 
 const ARCHIVES = [{ name: 'NASCAR Classics', url: 'https://classics.nascar.com/', sport: 'Motorsport' }];
 
-const ReplayCard = ({ it, testId }) => (
-  <a href={it.url} target="_blank" rel="noopener noreferrer" data-testid={testId}
-    className="flex items-start gap-3 p-3 rounded-xl bg-[#0d0d14] border border-white/5 hover:border-[#7c83ff]/40 hover:bg-white/5 transition-colors">
+const ReplayCard = ({ it, testId, onPlay }) => {
+  const cls = 'w-full text-left flex items-start gap-3 p-3 rounded-xl bg-[#0d0d14] border border-white/5 hover:border-[#7c83ff]/40 hover:bg-white/5 transition-colors';
+  const body = (
+    <>
     <LogoTile src={it.logo || (it.kind === 'youtube' ? '' : favicon(it.url))} name={it.name} className="w-11 h-11 rounded-full" />
     <div className="min-w-0 flex-1">
       <div className="text-sm font-semibold text-white line-clamp-2">{it.name}</div>
@@ -18,12 +20,17 @@ const ReplayCard = ({ it, testId }) => (
         {it.kind === 'youtube' && (
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 inline-flex items-center gap-1"><Youtube className="w-3 h-3" /> YouTube</span>
         )}
+        {it.community && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300">Community upload</span>}
       </div>
       {it.description && <div className="text-[11px] text-zinc-500 mt-1 line-clamp-2">{it.description}</div>}
     </div>
-    <ExternalLink className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-1" />
-  </a>
-);
+    {it.embed ? <PlayCircle className="w-5 h-5 text-[#a8aeff] shrink-0 mt-0.5" /> : <ExternalLink className="w-3.5 h-3.5 text-zinc-500 shrink-0 mt-1" />}
+    </>
+  );
+  return it.embed
+    ? <button type="button" onClick={() => onPlay(it)} data-testid={testId} className={cls}>{body}</button>
+    : <a href={it.url} target="_blank" rel="noopener noreferrer" data-testid={testId} className={cls}>{body}</a>;
+};
 
 export default function ReplaysPage() {
   const [data, setData] = useState({ items: [], counts: {}, updated_at: null });
@@ -31,6 +38,7 @@ export default function ReplaysPage() {
   const [error, setError] = useState(false);
   const [sport, setSport] = useState('');
   const [q, setQ] = useState('');
+  const [playing, setPlaying] = useState(null);
 
   useEffect(() => {
     j('/replays').then(setData).catch(() => setError(true)).finally(() => setLoading(false));
@@ -48,7 +56,7 @@ export default function ReplaysPage() {
           <Clapperboard className="w-7 h-7 text-[#7c83ff]" />
           <h1 className="text-3xl md:text-4xl font-black tracking-tight" data-testid="replays-title">Sports Replays</h1>
         </div>
-        <p className="text-sm text-zinc-400 mb-1">Full matches and highlights from official league and broadcaster channels.</p>
+        <p className="text-sm text-zinc-400 mb-1">Full matches and highlights from official league and broadcaster channels — tap a card to play it here.</p>
         <p className="text-xs text-zinc-500 mb-5" data-testid="replays-updated">
           {data.updated_at ? `Last updated ${new Date(data.updated_at).toLocaleString()}` : loading ? 'Loading…' : 'Not synced yet'}
         </p>
@@ -82,11 +90,12 @@ export default function ReplaysPage() {
           <div className="py-16 text-center text-sm text-zinc-500" data-testid="replays-empty">No channels match your search.</div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2" data-testid="replays-grid">
-            {shown.map((it, i) => <ReplayCard key={it.id} it={it} testId={`replays-card-${i}`} />)}
+            {shown.map((it, i) => <ReplayCard key={it.id} it={it} onPlay={setPlaying} testId={`replays-card-${i}`} />)}
           </div>
         )}
       </main>
       <Footer />
+      {playing && <ReplayPlayer item={playing} onClose={() => setPlaying(null)} />}
     </div>
   );
 }

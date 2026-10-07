@@ -26,6 +26,10 @@ sections.
 
 ## Changelog (latest first)
 
+### 2026-06 — Embedded replays
+- Replays play in an embedded YouTube player modal (channel → uploads playlist UU…, playlists → videoseries); 113/116 embeddable. Added owner's 2 YouTube playlists (TNA PPVs, classic MLB) labelled "Community upload".
+- Declined again: unlicensed replay/live sites from the owner's lists.
+
 ### 2026-06 — More channels + 15-min live refresh
 - Added official FAST playlists (Pluto TV, Samsung TV Plus, Plex, Roku) → 17,591 channels; group-title country names mapped to codes; UK/GB code bug fixed.
 - Streams dead in 3 consecutive daily full probes are dropped at sync (`livetv_stream_health`).

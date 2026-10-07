@@ -180,6 +180,32 @@ def parse_sport_section(md: str) -> List[dict]:
 
 
 _OG_IMAGE = re.compile(r'<meta property="og:image" content="([^"]+)"')
+_CHANNEL_ID = re.compile(r'"externalId":"(UC[A-Za-z0-9_-]{22})"|youtube\.com/channel/(UC[A-Za-z0-9_-]{22})')
+_LIST_ID = re.compile(r"[?&]list=([A-Za-z0-9_-]+)")
+EMBED = "https://www.youtube-nocookie.com/embed/videoseries?list="
+
+# Extra YouTube playlists added by the owner (fan uploads; YouTube handles takedowns).
+EXTRA_PLAYLISTS = [
+    ("https://www.youtube.com/playlist?list=PLSadBNbijyoGV44wd96Fda7-GDYh9UktC", "Combat"),
+    ("https://www.youtube.com/playlist?list=PLbbmEcFXHSnOHeJdpQr0K808cPVzP0t_B", "Baseball"),
+]
+
+
+async def _extra_playlists(c: httpx.AsyncClient) -> List[dict]:
+    out = []
+    for url, sport in EXTRA_PLAYLISTS:
+        lid = _LIST_ID.search(url).group(1)
+        item = {"_id": url, "name": "YouTube playlist", "url": url, "description": "", "sport": sport,
+                "kind": "youtube", "community": True, "embed": EMBED + lid, "logo": ""}
+        try:
+            r = await c.get("https://www.youtube.com/oembed", params={"format": "json", "url": url})
+            d = r.json()
+            item.update(name=d.get("title") or item["name"], logo=d.get("thumbnail_url") or "",
+                        description=f"Playlist by {d.get('author_name', 'a YouTube user')}")
+        except Exception:
+            pass
+        out.append(item)
+    return out
 
 
 async def _attach_logos(items: List[dict], old: Dict[str, str]) -> None:
@@ -196,14 +222,22 @@ async def _attach_logos(items: List[dict], old: Dict[str, str]) -> None:
                 it["logo"] = f"https://www.google.com/s2/favicons?domain={host}&sz=128"
                 return
             async with sem:
+                lid = _LIST_ID.search(it["url"])
+                if lid:
+                    it["embed"] = EMBED + lid.group(1)
                 try:
                     r = await c.get(it["url"])
                     m = _OG_IMAGE.search(r.text)
                     if m:
                         it["logo"] = m.group(1).replace("&amp;", "&")
+                    cm = _CHANNEL_ID.search(r.text)
+                    if cm and not lid:  # channel -> its uploads playlist (UU + id)
+                        cid = cm.group(1) or cm.group(2)
+                        it["embed"] = EMBED + "UU" + cid[2:]
                 except Exception:
                     pass
         await asyncio.gather(*(one(it) for it in items))
+        items.extend(await _extra_playlists(c))
 
 
 async def rescan_replays(db) -> dict:
