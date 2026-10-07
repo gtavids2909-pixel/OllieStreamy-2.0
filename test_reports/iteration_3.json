@@ -1,0 +1,20 @@
+{
+  "summary": "Verified removal of 'Curated sports channels' section from /livetv?tab=sports at both 390x844 and 1920x800. Confirmed remaining Sports tab functionality (chips, fixtures, channels grid, replays link, player open), /sports redirect, and smoke on /livetv and /replays. No page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "LiveTVPage category <select>", "issues": ["Hydration warning: <span> rendered inside <option> for category dropdown (data-testid livetv-cat...). Pre-existing React hydration warning unrelated to the Curated removal; recommend removing dynamic span wrapper inside <option> children."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": ["Hydration warning in LiveTVPage.jsx around line 318: <option> contains a <span> child causing hydration mismatch. Render plain text inside <option>."],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a", "frontend": "100%"},
+  "seed_data_creation": "",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Curated sports section fully removed. Sports tab elements verified: sport-chips, fixtures-section, sports-channels-grid, sports-replays-link all present. /sports redirects to /livetv?tab=sports. Clicking first channel opens livetv-player-root. Hydration warning for <option> span is pre-existing."
+}

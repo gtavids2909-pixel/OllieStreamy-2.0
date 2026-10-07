@@ -316,7 +316,7 @@ export default function LiveTVPage() {
             <option value="" className="bg-[#101018]">All categories</option>
             {PRIMARY_CATEGORIES.filter((c) => facets.categories?.[c]).map((c) => (
               <option key={c} value={c} className="bg-[#101018]">
-                {c} ({facets.categories[c].toLocaleString()})
+                {`${c} (${facets.categories[c].toLocaleString()})`}
               </option>
             ))}
           </select>
