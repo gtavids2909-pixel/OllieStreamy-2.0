@@ -23,21 +23,22 @@ export default function Footer() {
             <li><Link to="/movies" className="hover:text-white">Movies</Link></li>
             <li><Link to="/tv" className="hover:text-white">TV Shows</Link></li>
             <li><Link to="/trending" className="hover:text-white">Trending</Link></li>
-            <li><Link to="/sports" className="hover:text-white">Sports</Link></li>
+            <li><Link to="/replays" data-testid="footer-link-replays" className="hover:text-white">Replays</Link></li>
           </ul>
         </div>
         <div>
           <h4 className="text-white font-semibold mb-3 text-sm uppercase tracking-wide">Company</h4>
           <ul className="space-y-2 text-sm text-zinc-400">
-            <li><a href="#" className="hover:text-white">About</a></li>
-            <li><a href="#" className="hover:text-white">Contact</a></li>
-            <li><a href="#" className="hover:text-white">Privacy</a></li>
-            <li><a href="#" className="hover:text-white">Terms</a></li>
+            <li><Link to="/about" data-testid="footer-link-about" className="hover:text-white">About</Link></li>
+            <li><Link to="/contact" data-testid="footer-link-contact" className="hover:text-white">Contact</Link></li>
+            <li><Link to="/privacy" data-testid="footer-link-privacy" className="hover:text-white">Privacy</Link></li>
+            <li><Link to="/terms" data-testid="footer-link-terms" className="hover:text-white">Terms</Link></li>
+            <li><Link to="/dmca" data-testid="footer-link-dmca" className="hover:text-white">DMCA</Link></li>
           </ul>
         </div>
       </div>
       <div className="border-t border-white/5 py-5 text-center text-xs text-zinc-500">
-        © {new Date().getFullYear()} OllieStreamy. All data provided by TMDB.
+        © {new Date().getFullYear()} OllieStreamy. Data provided by TMDB.
       </div>
     </footer>
   );

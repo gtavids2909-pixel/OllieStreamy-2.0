@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import Navbar from '../components/Navbar';
-import Footer from '../components/Footer';
 import {
   Volleyball,
   Trophy,
@@ -13,10 +11,10 @@ import {
   Search as SearchIcon,
   Cast,
 } from 'lucide-react';
-import { CATEGORIES, CHANNELS, channelsByCategory } from '../lib/sportsChannels';
-import { getSafeMode, onSafeModeChange } from '../lib/prefs';
+import { CATEGORIES, CHANNELS, channelsByCategory } from '../../lib/sportsChannels';
+import { getSafeMode, onSafeModeChange } from '../../lib/prefs';
 
-export default function SportsPage() {
+export default function CuratedSports() {
   const navigate = useNavigate();
   const [catKey, setCatKey] = useState('cricket');
   const [query, setQuery] = useState('');
@@ -67,12 +65,10 @@ export default function SportsPage() {
   const srv = tuned?.servers[serverIdx];
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white">
-      <Navbar />
-      <main className="max-w-[1600px] mx-auto px-4 lg:px-8 pt-24 pb-14">
+    <section data-testid="curated-sports">
         <div className="flex items-center gap-3 mb-2 flex-wrap">
           <Volleyball className="w-7 h-7 text-[#7c83ff]" />
-          <h1 className="text-3xl md:text-4xl font-black tracking-tight" data-testid="sports-page-title">Live TV</h1>
+          <h2 className="text-xl md:text-2xl font-black tracking-tight" data-testid="sports-page-title">Curated sports channels</h2>
           <span className="ml-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/15 border border-red-500/40 text-red-300 text-xs font-bold uppercase">
             <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Live 24/7
           </span>
@@ -280,8 +276,6 @@ export default function SportsPage() {
             </div>
           </div>
         </div>
-      </main>
-      <Footer />
-    </div>
+    </section>
   );
 }

@@ -107,7 +107,7 @@ export default function CastPage() {
   const active = servers[serverIdx] || servers[0];
 
   const goBack = () => {
-    if (isLive) { navigate('/sports'); return; }
+    if (isLive) { navigate('/livetv?tab=sports'); return; }
     // Back to detail page with playing=1 so the user lands right on the player.
     const back = location.state?.from
       || `/${type}/${id}${type === 'tv' ? `?play=1&s=${s}&e=${e}` : '?play=1'}`;

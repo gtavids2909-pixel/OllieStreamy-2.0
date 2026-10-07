@@ -113,3 +113,15 @@ code {
         border-bottom-color: inherit;
     }
 }
+
+[data-player-shell]:fullscreen { justify-content: center; }
+[data-player-shell]:fullscreen .os-video-box { flex: 1; aspect-ratio: auto; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

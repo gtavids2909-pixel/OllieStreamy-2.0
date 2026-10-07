@@ -27,14 +27,25 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+from sports import annotate
+
 API_BASE = "https://iptv-org.github.io/api"
 FETCH_TIMEOUT = httpx.Timeout(60.0, connect=15.0)
 PROBE_TIMEOUT = httpx.Timeout(6.0, connect=4.0)
 CACHE_TTL_SECONDS = 24 * 60 * 60  # 24 h
-PROBE_CONCURRENCY = 20             # keep API responsive during probe
+PROBE_CONCURRENCY = 40             # keep API responsive during probe
 PRIORITY_RECHECK_SECONDS = 15 * 60  # sports / event / recently-offline channels
 PRIORITY_CATEGORIES = {"sports", "events", "live", "news"}  # channels that go on/off air
 EXTRA_M3U_ENV = "LIVETV_EXTRA_M3U"  # comma-separated extra .m3u playlist URLs
+DEFAULT_EXTRA_M3U = [
+    "https://iptv-org.github.io/iptv/index.m3u",
+    "https://iptv-org.github.io/iptv/index.country.m3u",
+    "https://iptv-org.github.io/iptv/index.category.m3u",
+    "https://iptv-org.github.io/iptv/index.language.m3u",
+    "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
+]
+ADULT_WORDS = ("xxx", "adult", "porn", "erotic", "18+")
+HD_QUALITIES = {"720p", "1080p", "2160p"}
 
 logger = logging.getLogger(__name__)
 # Silence httpx's per-request INFO lines so a 16k-stream probe doesn't flood logs.
@@ -111,21 +122,48 @@ class LiveTVService:
                 }
             )
 
-        # Optional extra playlists (comma-separated URLs in $LIVETV_EXTRA_M3U) are
-        # merged in by tvg-id so they add mirrors to existing channels.
-        try:
-            for extra_url in [u.strip() for u in os.environ.get(EXTRA_M3U_ENV, "").split(",") if u.strip()]:
-                async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as xc:
+        # ---- Gather streams that have no iptv-org channel record ("orphans") ----
+        channel_ids = {c.get("id") for c in channels if c.get("id")}
+        orphans: List[dict] = []
+        for st in streams:
+            if st.get("channel") or not st.get("url"):
+                continue
+            orphans.append({
+                "name": (st.get("title") or "").strip(), "url": st["url"], "tvg_id": "",
+                "logo": "", "group": "", "user_agent": st.get("user_agent") or "",
+                "referrer": st.get("referrer") or "",
+            })
+
+        # ---- Extra playlists: defaults + $LIVETV_EXTRA_M3U ----
+        custom = [d["_id"] async for d in db.livetv_playlists.find({}, {"_id": 1})]
+        extra_urls = list(dict.fromkeys(list(DEFAULT_EXTRA_M3U) + [
+            u.strip() for u in os.environ.get(EXTRA_M3U_ENV, "").split(",") if u.strip()
+        ] + custom))
+        playlist_results: Dict[str, dict] = {}
+        failed_playlists: List[str] = []
+        async with httpx.AsyncClient(timeout=FETCH_TIMEOUT, follow_redirects=True) as xc:
+            for extra_url in extra_urls:
+                try:
                     r = await xc.get(extra_url)
                     r.raise_for_status()
-                for ent in parse_m3u(r.text):
-                    if ent["tvg_id"]:
-                        streams_by_ch.setdefault(ent["tvg_id"], []).append(
+                    entries = parse_m3u(r.text)
+                except Exception:
+                    logger.warning("livetv: extra playlist failed, skipping: %s", extra_url)
+                    failed_playlists.append(extra_url)
+                    playlist_results[extra_url] = {"ok": False, "error": "download or parse failed"}
+                    continue
+                added = 0
+                for ent in entries:
+                    if ent["tvg_id"] and ent["tvg_id"].split("@")[0] in channel_ids:
+                        streams_by_ch.setdefault(ent["tvg_id"].split("@")[0], []).append(
                             {"url": ent["url"], "quality": "", "title": ent["name"],
                              "user_agent": ent["user_agent"], "referrer": ent["referrer"]}
                         )
-        except Exception:
-            logger.exception("livetv: extra m3u import failed (continuing with iptv-org only)")
+                    else:
+                        orphans.append(ent)
+                    added += 1
+                logger.info("livetv: %s -> %d entries", extra_url, added)
+                playlist_results[extra_url] = {"ok": True, "entries": added}
 
         # Pick the "in_use" logo per channel, else the widest.
         logos_by_ch: Dict[str, str] = {}
@@ -189,6 +227,63 @@ class LiveTVService:
                 }
             )
 
+        # ---- Turn orphan streams into channels (grouped by name + country) ----
+        import hashlib
+        seen_urls_global = {st["url"] for d in docs for st in d["streams"]}
+        groups: Dict[str, dict] = {}
+        for ent in orphans:
+            url = (ent.get("url") or "").strip()
+            name = (ent.get("name") or "").strip()
+            if not url or not name or url in seen_urls_global:
+                continue
+            if not url.lower().startswith(("http://", "https://")):
+                continue
+            group_txt = (ent.get("group") or "").lower()
+            if any(w in group_txt or w in name.lower() for w in ADULT_WORDS):
+                continue
+            tid = (ent.get("tvg_id") or "").split("@")[0]
+            m = re.search(r"\.([a-z]{2})$", tid, re.I)
+            cc = (m.group(1).upper() if m else "XX")
+            cc = "GB" if cc == "UK" else cc
+            key = f"{re.sub(r'[^a-z0-9]+', '', name.lower())}|{cc}"
+            g = groups.setdefault(key, {
+                "name": name, "cc": cc, "logo": ent.get("logo") or "",
+                "cats": set(), "streams": [],
+            })
+            for c in re.split(r"[;,]", group_txt):
+                c = c.strip()
+                if c and len(c) < 24:
+                    g["cats"].add(c)
+            if not g["logo"]:
+                g["logo"] = ent.get("logo") or ""
+            g["streams"].append({
+                "url": url, "quality": "", "title": name,
+                "user_agent": ent.get("user_agent") or "", "referrer": ent.get("referrer") or "",
+                "alive": None, "checked_at": None,
+            })
+            seen_urls_global.add(url)
+
+        for key, g in groups.items():
+            cc = g["cc"]
+            country = countries_by_code.get(cc, {})
+            cat_ids = sorted(g["cats"])
+            docs.append({
+                "_id": "x:" + hashlib.sha1(key.encode()).hexdigest()[:14],
+                "name": g["name"], "alt_names": [], "network": "",
+                "country": cc,
+                "country_name": country.get("name") or ("Other / Unsorted" if cc == "XX" else cc),
+                "country_flag": country.get("flag") or ("🌐" if cc == "XX" else ""),
+                "category_ids": cat_ids,
+                "categories": [categories_by_id.get(c, {}).get("name") or c.title() for c in cat_ids],
+                "logo": g["logo"], "streams": g["streams"][:12],
+                "updated_at": now.isoformat(),
+            })
+        logger.info("livetv: %d total channels after merging extra sources", len(docs))
+
+        for d in docs:
+            annotate(d)
+        logos_fixed = _clear_shared_logos(docs)
+
         # Wipe and re-insert the catalog in bulk (keeps the collection in sync
         # with upstream — no stale ids ever lingering).
         await db.livetv_channels.delete_many({})
@@ -197,6 +292,13 @@ class LiveTVService:
             batch = 2000
             for i in range(0, len(docs), batch):
                 await db.livetv_channels.insert_many(docs[i : i + batch])
+
+        await db.livetv_meta.update_one(
+            {"_id": "playlist_status"},
+            {"$set": {"failed": failed_playlists, "sources": extra_urls, "results": playlist_results,
+                      "logos_fixed": logos_fixed, "ts": now.isoformat()}},
+            upsert=True,
+        )
 
         # Country + category summaries for the sidebar.
         country_counts: Dict[str, int] = {}
@@ -238,13 +340,20 @@ class LiveTVService:
         }
 
     # ----------------------------- queries ------------------------------
-    async def list_countries(self, db, include_offline: bool = False) -> List[dict]:
+    async def list_countries(self, db, include_offline: bool = False, status: Optional[str] = None,
+                             pcat: Optional[str] = None, sport: Optional[str] = None) -> List[dict]:
         """
         Country index. We re-count channels against the live-streams filter so
         the sidebar numbers match what the user actually sees when they expand
         a country. This also hides countries that are 100 % dead.
         """
         match = {} if include_offline else {"streams": {"$elemMatch": {"alive": {"$ne": False}}}}
+        if status:
+            match = dict(STATUS_QUERY.get(status, {}))
+        if pcat:
+            match["primary_category"] = pcat
+        if sport:
+            match["sport"] = sport
         pipeline = [
             {"$match": match},
             {
@@ -294,8 +403,15 @@ class LiveTVService:
         page: int = 1,
         page_size: int = 60,
         include_offline: bool = False,
+        sport: Optional[str] = None,
+        pcat: Optional[str] = None,
+        status: Optional[str] = None,
     ) -> dict:
         query: Dict[str, Any] = {}
+        if sport:
+            query["sport"] = sport
+        if pcat:
+            query["primary_category"] = pcat
         if country:
             query["country"] = country.upper()
         if category:
@@ -312,16 +428,20 @@ class LiveTVService:
         # With include_offline the user also sees channels that are off-air right
         # now (e.g. a sports channel between events) — they are re-probed often and
         # on open, so they work as soon as the broadcast starts.
-        if not include_offline:
+        if status:
+            query.update(STATUS_QUERY.get(status, {}))
+        elif not include_offline:
             query["streams"] = {"$elemMatch": {"alive": {"$ne": False}}}
         total = await db.livetv_channels.count_documents(query)
         skip = max(0, (page - 1) * page_size)
-        cur = (
-            db.livetv_channels.find(query)
-            .sort("name", 1)
-            .skip(skip)
-            .limit(page_size)
-        )
+        cur = db.livetv_channels.aggregate([
+            {"$match": query},
+            {"$addFields": {"_alive": {"$size": {"$filter": {
+                "input": "$streams", "as": "s", "cond": {"$eq": ["$$s.alive", True]}}}}}},
+            {"$sort": {"_alive": -1, "name": 1, "_id": 1}},
+            {"$skip": skip},
+            {"$limit": page_size},
+        ], allowDiskUse=True)
         items = []
         async for d in cur:
             streams = d.get("streams", [])
@@ -335,9 +455,12 @@ class LiveTVService:
                     "country_name": d.get("country_name", ""),
                     "country_flag": d.get("country_flag", ""),
                     "categories": d.get("categories", []),
+                    "sport": d.get("sport"),
+                    "primary_category": d.get("primary_category"),
                     "logo": d.get("logo", ""),
                     "stream_count": len(streams),
                     "alive_count": alive,
+                    "hd": any((st.get("quality") or "").lower() in HD_QUALITIES for st in streams),
                     "offline": not any(st.get("alive") is not False for st in streams),
                 }
             )
@@ -349,6 +472,34 @@ class LiveTVService:
             "has_more": skip + len(items) < total,
         }
 
+    async def facets(self, db, status: str = "live", country: Optional[str] = None) -> dict:
+        base: Dict[str, Any] = {"country": country.upper()} if country else {}
+        q = {**base, **STATUS_QUERY.get(status, {})}
+        out = {"status": {}, "sports": {}, "categories": {}}
+        for k, sq in STATUS_QUERY.items():
+            out["status"][k] = await db.livetv_channels.count_documents({**base, **sq})
+        async for row in db.livetv_channels.aggregate([
+            {"$match": q},
+            {"$facet": {
+                "sports": [{"$match": {"sport": {"$ne": None}}}, {"$group": {"_id": "$sport", "n": {"$sum": 1}}}],
+                "categories": [{"$group": {"_id": "$primary_category", "n": {"$sum": 1}}}],
+            }},
+        ]):
+            out["sports"] = {r["_id"]: r["n"] for r in row["sports"] if r["_id"]}
+            out["categories"] = {r["_id"]: r["n"] for r in row["categories"] if r["_id"]}
+        return out
+
+    async def reannotate(self, db) -> dict:
+        docs = [d async for d in db.livetv_channels.find({}, {"name": 1, "alt_names": 1, "category_ids": 1, "logo": 1})]
+        for d in docs:
+            annotate(d)
+        fixed = _clear_shared_logos(docs)
+        from pymongo import UpdateOne
+        ops = [UpdateOne({"_id": d["_id"]}, {"$set": {"sport": d["sport"], "primary_category": d["primary_category"], "logo": d.get("logo", "")}}) for d in docs]
+        for i in range(0, len(ops), 2000):
+            await db.livetv_channels.bulk_write(ops[i:i + 2000], ordered=False)
+        return {"channels": len(docs), "logos_fixed": fixed}
+
     async def get_channel(self, db, channel_id: str) -> Optional[dict]:
         d = await db.livetv_channels.find_one({"_id": channel_id})
         if not d:
@@ -357,17 +508,10 @@ class LiveTVService:
 
         # Drop fully-dead mirrors; keep alive and unchecked (unchecked = fresh
         # sync not yet probed).
-        kept = [s for s in streams if s.get("alive") is not False]
-        offline = not kept
-        if offline:
-            # Off-air right now: still hand back every mirror so the player can try
-            # them (a scheduled channel may have just gone live).
-            kept = list(streams)
-
-        # Order: proven-alive first, then unchecked.
-        def _rank(s):
-            return 0 if s.get("alive") is True else 1
-        kept.sort(key=_rank)
+        offline = not any(s.get("alive") is not False for s in streams)
+        # Keep every mirror (a scheduled channel may have just gone live) but order
+        # proven-alive first, then unchecked, then dead.
+        kept = sorted(streams, key=lambda s: {True: 0, None: 1}.get(s.get("alive"), 2))
 
         # Deduplicate repeated quality labels — iptv-org marks most streams
         # "1080p" even when they differ, so attach a mirror index for clarity.
@@ -550,6 +694,10 @@ async def _get(client: httpx.AsyncClient, path: str) -> list:
 
 
 async def _check_stream(client: httpx.AsyncClient, url: str, user_agent: str = "", referrer: str = "") -> bool:
+    return (await check_stream_reason(client, url, user_agent, referrer))[0]
+
+
+async def check_stream_reason(client: httpx.AsyncClient, url: str, user_agent: str = "", referrer: str = ""):
     """
     Probe one stream by actually fetching it the way a player would.
 
@@ -572,38 +720,61 @@ async def _check_stream(client: httpx.AsyncClient, url: str, user_agent: str = "
     try:
         async with client.stream("GET", url, headers=headers) as r:
             if r.status_code < 200 or r.status_code >= 400:
-                return False
+                return False, f"HTTP {r.status_code}"
             ct = (r.headers.get("content-type") or "").lower()
             if ct.startswith(("video/", "audio/")) and "mpegurl" not in ct:
-                return True
+                return True, f"Direct media stream ({ct})"
             buf = b""
             async for chunk in r.aiter_bytes(4096):
                 buf += chunk
                 if len(buf) >= 256 * 1024:
                     break
             final = str(r.url)
-    except Exception:
-        return False
+    except Exception as e:
+        return False, f"Request failed: {type(e).__name__}"
 
     text = buf.decode("utf-8", errors="ignore").lstrip("\ufeff \r\n\t")
     if not text.startswith("#EXTM3U"):
-        return False
+        return False, "Not a playlist (no #EXTM3U header)"
 
     # Find the first media URI and make sure it answers.
     first = next((ln.strip() for ln in text.splitlines() if ln.strip() and not ln.startswith("#")), None)
     if not first:
-        return False  # empty playlist = nothing on air
+        return False, "Empty playlist (nothing on air)"
     try:
         target = urljoin(final, first)
         async with client.stream("GET", target, headers=headers) as r2:
             if r2.status_code < 200 or r2.status_code >= 400:
-                return False
+                return False, f"First segment failed: HTTP {r2.status_code}"
             # Variant playlists are text; segments are binary. Either is fine as long as it has bytes.
             async for chunk in r2.aiter_bytes(2048):
-                return bool(chunk)
-            return False
-    except Exception:
-        return False
+                if chunk:
+                    return True, "Playlist OK, first segment/variant responded"
+            return False, "First segment failed: empty response"
+    except Exception as e:
+        return False, f"First segment failed: {type(e).__name__}"
+
+
+STATUS_QUERY: Dict[str, Dict[str, Any]] = {
+    "live": {"streams": {"$elemMatch": {"alive": True}}},
+    "offline": {"streams": {"$not": {"$elemMatch": {"alive": {"$ne": False}}}}},
+    "all": {},
+}
+
+
+def _clear_shared_logos(docs: List[dict], threshold: int = 20) -> int:
+    """Blank logos reused by many unrelated channel names (wrong/placeholder art)."""
+    names: Dict[str, set] = {}
+    for d in docs:
+        if d.get("logo"):
+            names.setdefault(d["logo"], set()).add(((d.get("name") or "").lower().split() or [""])[0])
+    bad = {u for u, n in names.items() if len(n) >= threshold}
+    fixed = 0
+    for d in docs:
+        if d.get("logo") in bad:
+            d["logo"] = ""
+            fixed += 1
+    return fixed
 
 
 _M3U_ATTR = re.compile(r'([\w-]+)="(.*?)"')
@@ -620,6 +791,8 @@ def parse_m3u(text: str) -> List[dict]:
             cur = {
                 "name": line.rsplit(",", 1)[-1].strip(),
                 "tvg_id": (attrs.get("tvg-id") or "").strip(),
+                "logo": (attrs.get("tvg-logo") or "").strip(),
+                "group": (attrs.get("group-title") or "").strip(),
                 "user_agent": attrs.get("http-user-agent", ""),
                 "referrer": attrs.get("http-referrer", ""),
             }

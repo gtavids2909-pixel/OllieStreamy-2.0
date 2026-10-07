@@ -26,6 +26,9 @@ sections.
 
 ## Changelog (latest first)
 
+### 2026-06 — Live TV bulk channel import
+- Sync now merges 5 default playlists (iptv-org index/country/category/language + Free-TV) plus `$LIVETV_EXTRA_M3U`; streams with no channel record become `x:` channels grouped by name+country (adult entries filtered); probe concurrency 40; `/api/livetv/sync?force=true` forces a re-sync.
+
 ### 2026-06 — Restored from Olliestreamy-fixed.zip
 - Frontend `src/`, `public/index.html`, backend `server.py`, `livetv_service.py`,
   `livetv_proxy.py` and `.emergent/crons.yml` restored verbatim. Added `hls.js` dep.

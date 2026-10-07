@@ -12,8 +12,12 @@ from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
 
-from livetv_service import LiveTVService
+from livetv_service import LiveTVService, check_stream_reason, PROBE_TIMEOUT
 from livetv_proxy import router as livetv_proxy_router
+import base64
+import re
+import sports as sportsmod
+import httpx
 
 
 ROOT_DIR = Path(__file__).parent
@@ -29,6 +33,13 @@ app = FastAPI()
 
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
+
+
+def require_admin(request: Request) -> None:
+    expected = os.environ.get("ADMIN_TOKEN", "")
+    given = request.headers.get("x-admin-token", "")
+    if not expected or not hmac.compare_digest(given.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Invalid admin token")
 
 
 # Define Models
@@ -89,9 +100,13 @@ async def _background_probe():
 
 
 @api_router.get("/livetv/sync")
-async def livetv_sync(bg: BackgroundTasks):
+async def livetv_sync(bg: BackgroundTasks, request: Request, force: bool = False):
     """Force-refresh (or ensure fresh) the live-TV catalog from iptv-org."""
+    if force:
+        require_admin(request)
     try:
+        if force:
+            await db.livetv_meta.delete_one({"_id": "last_sync"})
         result = await livetv.ensure_fresh(db)
         # Kick off a non-blocking health probe so dead mirrors fall off.
         bg.add_task(_background_probe)
@@ -127,9 +142,10 @@ async def livetv_probe_status():
 
 
 @api_router.get("/livetv/countries")
-async def livetv_countries(include_offline: bool = False):
+async def livetv_countries(include_offline: bool = False, status: Optional[str] = Query(None, pattern="^(live|offline|all)$"),
+                          pcat: Optional[str] = None, sport: Optional[str] = None):
     await livetv.ensure_fresh(db)
-    return {"items": await livetv.list_countries(db, include_offline=include_offline)}
+    return {"items": await livetv.list_countries(db, include_offline=include_offline, status=status, pcat=pcat, sport=sport)}
 
 
 @api_router.get("/livetv/categories")
@@ -146,12 +162,47 @@ async def livetv_channels(
     page: int = Query(1, ge=1),
     page_size: int = Query(60, ge=1, le=200),
     include_offline: bool = False,
+    sport: Optional[str] = None,
+    pcat: Optional[str] = None,
+    status: Optional[str] = Query(None, pattern="^(live|offline|all)$"),
 ):
     await livetv.ensure_fresh(db)
     return await livetv.list_channels(
         db, country=country, category=category, q=q, page=page, page_size=page_size,
-        include_offline=include_offline,
+        include_offline=include_offline, sport=sport, pcat=pcat, status=status,
     )
+
+
+@api_router.get("/livetv/facets")
+async def livetv_facets(status: str = Query("live", pattern="^(live|offline|all)$"), country: Optional[str] = None):
+    await livetv.ensure_fresh(db)
+    return await livetv.facets(db, status=status, country=country)
+
+
+@api_router.get("/sports/fixtures")
+async def sports_fixtures(sport: str = "Soccer", date: Optional[str] = None):
+    if sport not in sportsmod.FIXTURE_SPORTS:
+        raise HTTPException(status_code=400, detail="Unknown sport")
+    date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    try:
+        return await sportsmod.get_fixtures(sport, date)
+    except Exception:
+        logger.exception("fixtures fetch failed")
+        raise HTTPException(status_code=502, detail="Fixtures provider unavailable")
+
+
+@api_router.get("/replays")
+async def replays(sport: Optional[str] = None):
+    if not await db.replays.estimated_document_count():
+        await sportsmod.rescan_replays(db)
+    q = {"sport": sport} if sport else {}
+    items = [{"id": d["_id"], **{k: d.get(k) for k in ("name", "url", "description", "sport", "kind")}}
+             async for d in db.replays.find(q).sort("name", 1)]
+    meta = await db.livetv_meta.find_one({"_id": "replays"}) or {}
+    counts = {r["_id"]: r["n"] async for r in db.replays.aggregate([{"$group": {"_id": "$sport", "n": {"$sum": 1}}}])}
+    return {"items": items, "updated_at": meta.get("ts"), "counts": counts}
 
 
 @api_router.get("/livetv/channel/{channel_id}")
@@ -195,6 +246,117 @@ async def cron_livetv_refresh(request: Request, bg: BackgroundTasks):
     return {"status": "accepted"}
 
 # -------- Background loop: keep on/off-air channels fresh ---------------------
+async def _priority_probe_task():
+    try:
+        logger.info("livetv admin priority probe: %s", await livetv.probe_priority(db))
+    except Exception:
+        logger.exception("admin priority probe failed")
+
+
+@api_router.get("/admin/stats")
+async def admin_stats(request: Request):
+    require_admin(request)
+    streams = await livetv_probe_status()
+    meta = await db.livetv_meta.find_one({"_id": "last_sync"}) or {}
+    pl = await db.livetv_meta.find_one({"_id": "playlist_status"}) or {}
+    ts = meta.get("ts")
+    if ts is not None and ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return {
+        "channels": await db.livetv_channels.estimated_document_count(),
+        "visible_channels": await db.livetv_channels.count_documents(
+            {"streams": {"$elemMatch": {"alive": {"$ne": False}}}}),
+        "countries": await db.livetv_countries.estimated_document_count(),
+        "streams": streams,
+        "last_sync": ts.isoformat() if ts else None,
+        "failed_playlists": pl.get("failed", []),
+        "playlist_results": pl.get("results", {}),
+        "logos_fixed": pl.get("logos_fixed"),
+        "playlist_sources": pl.get("sources", []),
+    }
+
+
+@api_router.post("/admin/sync")
+async def admin_sync(request: Request, bg: BackgroundTasks):
+    require_admin(request)
+    bg.add_task(_background_livetv_sync)
+    return {"status": "accepted"}
+
+
+@api_router.post("/admin/replays/rescan")
+async def admin_replays_rescan(request: Request):
+    require_admin(request)
+    return await sportsmod.rescan_replays(db)
+
+
+@api_router.post("/admin/reannotate")
+async def admin_reannotate(request: Request):
+    require_admin(request)
+    return await livetv.reannotate(db)
+
+
+class PlaylistIn(BaseModel):
+    url: str
+
+
+@api_router.get("/admin/playlists")
+async def admin_playlists(request: Request):
+    require_admin(request)
+    pl = await db.livetv_meta.find_one({"_id": "playlist_status"}) or {}
+    res = pl.get("results", {})
+    return {"items": [{"url": d["_id"], "added_at": d.get("added_at"), "last_result": res.get(d["_id"])}
+                      async for d in db.livetv_playlists.find({})]}
+
+
+@api_router.post("/admin/playlists")
+async def admin_add_playlist(request: Request, body: PlaylistIn):
+    require_admin(request)
+    url = body.url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    await db.livetv_playlists.update_one({"_id": url}, {"$setOnInsert": {"added_at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    return {"ok": True}
+
+
+@api_router.delete("/admin/playlists")
+async def admin_remove_playlist(request: Request, url: str):
+    require_admin(request)
+    await db.livetv_playlists.delete_one({"_id": url})
+    return {"ok": True}
+
+
+@api_router.post("/admin/probe-priority")
+async def admin_probe_priority(request: Request, bg: BackgroundTasks):
+    require_admin(request)
+    bg.add_task(_priority_probe_task)
+    return {"status": "accepted"}
+
+
+class StreamTestIn(BaseModel):
+    url: str
+    user_agent: str = ""
+    referrer: str = ""
+
+
+@api_router.post("/admin/test-stream")
+async def admin_test_stream(request: Request, body: StreamTestIn):
+    require_admin(request)
+    url = body.url.strip()
+    if not url.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
+    async with httpx.AsyncClient(timeout=PROBE_TIMEOUT, follow_redirects=True) as c:
+        alive, reason = await check_stream_reason(c, url, body.user_agent, body.referrer)
+
+    def b64(s):
+        return base64.urlsafe_b64encode(s.encode()).rstrip(b"=").decode()
+    parts = [f"u={b64(url)}"]
+    if body.user_agent:
+        parts.append(f"ua={b64(body.user_agent)}")
+    if body.referrer:
+        parts.append(f"ref={b64(body.referrer)}")
+    return {"alive": alive, "reason": reason, "proxy_url": "/api/livetv/proxy?" + "&".join(parts)}
+
+
 async def _priority_loop():
     await asyncio.sleep(60)  # let the app finish booting
     while True:
@@ -202,6 +364,10 @@ async def _priority_loop():
             if await db.livetv_channels.estimated_document_count():
                 stats = await livetv.probe_priority(db)
                 logger.info("livetv priority probe: %s", stats)
+            rmeta = await db.livetv_meta.find_one({"_id": "replays"}) or {}
+            rts = rmeta.get("ts")
+            if not rts or (datetime.now(timezone.utc) - datetime.fromisoformat(rts)).total_seconds() > 86400:
+                logger.info("replays rescan: %s", await sportsmod.rescan_replays(db))
         except Exception:
             logger.exception("livetv priority probe failed")
         await asyncio.sleep(15 * 60)
