@@ -26,6 +26,14 @@ sections.
 
 ## Changelog (latest first)
 
+### 2026-06 — Restored from Olliestreamy-fixed.zip
+- Frontend `src/`, `public/index.html`, backend `server.py`, `livetv_service.py`,
+  `livetv_proxy.py` and `.emergent/crons.yml` restored verbatim. Added `hls.js` dep.
+- Kept the environment's craco/tailwind/package.json build config for compatibility.
+- No external keys needed (TMDB keys embedded; iptv-org/Discord/YouTube public).
+- E2E tested: all backend endpoints and all pages pass; Live TV catalog re-synced (~10k channels).
+- Backlog: navbar labels wrap to 2 lines at desktop width; navbar doesn't reflect logged-in state (original behaviour).
+
 ### 2026-10-07 — Live-TV "Playback failed" fix + off-air/scheduled channels
 - **Root-cause fix**: `HlsVideo` and the Cast page only used hls.js when the URL
   ended in `.m3u8`, but every stream is served via `/api/livetv/proxy?...`, so

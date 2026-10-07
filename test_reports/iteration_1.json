@@ -1,0 +1,40 @@
+{
+  "summary": "First-iteration end-to-end test of OllieStreamy. Backend: 10/10 pytest API tests passed (root, livetv countries/categories/channels/channel/probe-status/proxy validation). Frontend: Home hero + rows, Movies/TV browse, Search, Movie & TV detail with iframe player (vidsrc.xyz) and server switcher, TV episode selector, Sports/Kids/Discord pages, Live TV country list (10,033 channels / 179 countries) and channel playback with HLS <video> and auto-failover message all render. Login (localStorage mock) submits and populates localStorage. No blocking bugs found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Login redirect", "issue": "After successful mock login via /login, URL stays on /login (no redirect to /home). localStorage is populated correctly (watch_history key present). Non-blocking.", "affected_selectors": ["form[action], button[type=submit]"]}
+    ],
+    "design_issues": [
+      {"screen": "Global (likely a <select><option> containing <span>)", "issues": ["React hydration warning: 'In HTML, <span> cannot be a child of <option>'. Appears on multiple pages. Should wrap text directly inside <option> without <span>."]},
+      {"screen": "Navbar", "issues": ["'TV Shows', 'Live TV', 'Watch History', 'Sign Up' nav items wrap onto two lines at 1920 width due to narrow nav spacing — minor polish."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: redirect to '/' (or previous page) after successful login/signup for better UX.",
+    "Optional: remove <span> wrappers from <option> children to clear hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py: `logger` is defined AFTER being referenced inside `_background_probe` / `livetv_sync`. Works because functions are called later, but better to configure logging before route definitions.",
+    "server.py uses deprecated FastAPI `@app.on_event('startup'/'shutdown')` — consider migrating to lifespan context manager.",
+    "No data-testid attributes present on interactive elements across the app; adds friction for future automation (not required by spec, but recommended).",
+    "LiveTV channel detail endpoint re-probes with 12s timeout on every request — may be heavy under load; probe loop already runs every 15 min."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "95%"},
+  "test_credentials": "None required — auth is a localStorage mock (any email/password works).",
+  "seed_data_creation": "None. Live TV catalog auto-synced from iptv-org on first API call.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests live at /app/backend/tests/backend_test.py; run via `pytest /app/backend/tests/ -v`. All 10 pass. Frontend routes: /, /movies, /tv, /trending, /sports, /livetv, /kids, /discord, /history, /search, /movie/:id, /tv/:id, /cast/:type/:id, /login, /signup. Note: /cast and /auth are NOT routes — correct paths are /cast/:type/:id and /login or /signup. Upstream HLS streams can be dead (iptv-org); the app shows a friendly off-air banner and failover — this is expected per the review request and NOT a bug."
+}
