@@ -8,7 +8,7 @@ import { j } from '../../lib/livetv';
 
 export const SPORTS = ['Football', 'Basketball', 'American Football', 'Baseball', 'Hockey', 'Cricket', 'Motorsport', 'Combat', 'Tennis', 'Rugby', 'Golf', 'Other'];
 
-export default function SportsHub({ status, counts, sport, setSport, onPick, activeId }) {
+export default function SportsHub({ tick, status, counts, sport, setSport, onPick, activeId }) {
   const [state, setState] = useState({ loading: true, items: [], total: 0 });
 
   useEffect(() => {
@@ -20,7 +20,7 @@ export default function SportsHub({ status, counts, sport, setSport, onPick, act
       .then((d) => !cancelled && setState({ loading: false, items: d.items || [], total: d.total || 0 }))
       .catch(() => !cancelled && setState({ loading: false, items: [], total: 0 }));
     return () => { cancelled = true; };
-  }, [status, sport]);
+  }, [status, sport, tick]);
 
   const jump = (s) => {
     setSport(s);

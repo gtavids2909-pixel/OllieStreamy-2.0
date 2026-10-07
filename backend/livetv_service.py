@@ -43,9 +43,15 @@ DEFAULT_EXTRA_M3U = [
     "https://iptv-org.github.io/iptv/index.category.m3u",
     "https://iptv-org.github.io/iptv/index.language.m3u",
     "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
+    # Official free ad-supported (FAST) services, generated from their public channel APIs
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plutotv_all.m3u",
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/samsungtvplus_all.m3u",
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/plex_all.m3u",
+    "https://raw.githubusercontent.com/BuddyChewChew/app-m3u-generator/main/playlists/roku_all.m3u",
 ]
 ADULT_WORDS = ("xxx", "adult", "porn", "erotic", "18+")
 HD_QUALITIES = {"720p", "1080p", "2160p"}
+DEAD_DAYS = 3  # consecutive daily probes a stream may fail before it is dropped
 
 logger = logging.getLogger(__name__)
 # Silence httpx's per-request INFO lines so a 16k-stream probe doesn't flood logs.
@@ -165,6 +171,13 @@ class LiveTVService:
                 logger.info("livetv: %s -> %d entries", extra_url, added)
                 playlist_results[extra_url] = {"ok": True, "entries": added}
 
+        # Streams that failed DEAD_DAYS daily checks in a row are permanently broken — skip them.
+        broken = {h["_id"] async for h in db.livetv_stream_health.find({"dead_runs": {"$gte": DEAD_DAYS}}, {"_id": 1})}
+        if broken:
+            streams_by_ch = {k: [x for x in v if x.get("url") not in broken] for k, v in streams_by_ch.items()}
+            orphans = [o for o in orphans if o.get("url") not in broken]
+            logger.info("livetv: skipping %d permanently dead streams", len(broken))
+
         # Pick the "in_use" logo per channel, else the widest.
         logos_by_ch: Dict[str, str] = {}
         for lg in logos:
@@ -231,6 +244,8 @@ class LiveTVService:
         import hashlib
         seen_urls_global = {st["url"] for d in docs for st in d["streams"]}
         groups: Dict[str, dict] = {}
+        code_by_name = {(c.get("name") or "").lower(): code for code, c in countries_by_code.items()}
+        code_by_name.update({"united states": "US", "usa": "US", "united kingdom": "UK", "uk": "UK"})
         for ent in orphans:
             url = (ent.get("url") or "").strip()
             name = (ent.get("name") or "").strip()
@@ -244,7 +259,10 @@ class LiveTVService:
             tid = (ent.get("tvg_id") or "").split("@")[0]
             m = re.search(r"\.([a-z]{2})$", tid, re.I)
             cc = (m.group(1).upper() if m else "XX")
-            cc = "GB" if cc == "UK" else cc
+            cc = "UK" if cc == "GB" else cc
+            gcc = code_by_name.get(group_txt.strip())
+            if gcc:  # FAST / per-country playlists put the country in group-title
+                cc, group_txt = gcc, ""
             key = f"{re.sub(r'[^a-z0-9]+', '', name.lower())}|{cc}"
             g = groups.setdefault(key, {
                 "name": name, "cc": cc, "logo": ent.get("logo") or "",
@@ -574,7 +592,9 @@ class LiveTVService:
         now = datetime.now(timezone.utc)
         cutoff = now.timestamp() - PRIORITY_RECHECK_SECONDS
         tasks = []
-        q = {"category_ids": {"$in": list(PRIORITY_CATEGORIES)}}
+        # Every off-air stream + all sports/news/event channels, so anything that comes
+        # back on air moves to "Live now" within ~15 minutes.
+        q = {"$or": [{"category_ids": {"$in": list(PRIORITY_CATEGORIES)}}, {"sport": {"$ne": None}}, {"streams.alive": False}]}
         async for d in db.livetv_channels.find(q, {"_id": 1, "streams": 1}):
             for i, s in enumerate(d.get("streams") or []):
                 ts = 0
@@ -665,7 +685,28 @@ class LiveTVService:
                 elif s.get("alive") is False:
                     dead_count += 1
 
+        if total:
+            await self._record_health(db)
         return {"probed": total, "alive": alive_count, "dead": dead_count}
+
+    @staticmethod
+    async def _record_health(db) -> None:
+        """Remember per-URL consecutive dead days so permanently broken streams get dropped at sync."""
+        from pymongo import UpdateOne
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        alive, dead = set(), set()
+        async for d in db.livetv_channels.find({}, {"streams.url": 1, "streams.alive": 1}):
+            for st in d.get("streams", []) or []:
+                (alive if st.get("alive") is True else dead if st.get("alive") is False else set()).add(st.get("url"))
+        dead -= alive
+        prev = {h["_id"]: h async for h in db.livetv_stream_health.find({"_id": {"$in": list(dead)}})}
+        ops = [UpdateOne({"_id": u}, {"$set": {"dead_runs": 0, "last_alive": today, "day": today}}, upsert=True) for u in alive]
+        for u in dead:
+            h = prev.get(u, {})
+            runs = h.get("dead_runs", 0) + (0 if h.get("day") == today else 1)
+            ops.append(UpdateOne({"_id": u}, {"$set": {"dead_runs": runs, "day": today}}, upsert=True))
+        for i in range(0, len(ops), 5000):
+            await db.livetv_stream_health.bulk_write(ops[i:i + 5000], ordered=False)
 
     @staticmethod
     async def _apply_probe_results(db, results, now):

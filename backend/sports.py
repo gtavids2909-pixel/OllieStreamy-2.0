@@ -1,6 +1,7 @@
 """Sport + primary-category classification, TheSportsDB fixtures proxy, official replays."""
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from datetime import datetime, timezone
@@ -178,6 +179,33 @@ def parse_sport_section(md: str) -> List[dict]:
     return items
 
 
+_OG_IMAGE = re.compile(r'<meta property="og:image" content="([^"]+)"')
+
+
+async def _attach_logos(items: List[dict], old: Dict[str, str]) -> None:
+    """Each channel's own avatar from its official YouTube page (og:image); site favicon otherwise."""
+    sem = asyncio.Semaphore(8)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36",
+               "Accept-Language": "en-US,en;q=0.9", "Cookie": "CONSENT=YES+1"}
+
+    async with httpx.AsyncClient(timeout=httpx.Timeout(12.0), follow_redirects=True, headers=headers) as c:
+        async def one(it):
+            it["logo"] = old.get(it["_id"], "")
+            if it["kind"] != "youtube":
+                host = re.sub(r"^https?://([^/]+).*$", r"\1", it["url"])
+                it["logo"] = f"https://www.google.com/s2/favicons?domain={host}&sz=128"
+                return
+            async with sem:
+                try:
+                    r = await c.get(it["url"])
+                    m = _OG_IMAGE.search(r.text)
+                    if m:
+                        it["logo"] = m.group(1).replace("&amp;", "&")
+                except Exception:
+                    pass
+        await asyncio.gather(*(one(it) for it in items))
+
+
 async def rescan_replays(db) -> dict:
     md = None
     async with httpx.AsyncClient(timeout=httpx.Timeout(20.0), follow_redirects=True) as c:
@@ -195,6 +223,8 @@ async def rescan_replays(db) -> dict:
     if not items:
         return {"ok": False, "error": "Sport section not found; kept previous data"}
     now = datetime.now(timezone.utc).isoformat()
+    old = {d["_id"]: d.get("logo", "") async for d in db.replays.find({}, {"logo": 1})}
+    await _attach_logos(items, old)
     for it in items:
         it["updated_at"] = now
     await db.replays.delete_many({})

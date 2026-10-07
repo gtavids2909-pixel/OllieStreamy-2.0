@@ -10,7 +10,7 @@ const ARCHIVES = [{ name: 'NASCAR Classics', url: 'https://classics.nascar.com/'
 const ReplayCard = ({ it, testId }) => (
   <a href={it.url} target="_blank" rel="noopener noreferrer" data-testid={testId}
     className="flex items-start gap-3 p-3 rounded-xl bg-[#0d0d14] border border-white/5 hover:border-[#7c83ff]/40 hover:bg-white/5 transition-colors">
-    <LogoTile src={it.kind === 'youtube' ? '' : favicon(it.url)} name={it.name} className="w-11 h-11" />
+    <LogoTile src={it.logo || (it.kind === 'youtube' ? '' : favicon(it.url))} name={it.name} className="w-11 h-11 rounded-full" />
     <div className="min-w-0 flex-1">
       <div className="text-sm font-semibold text-white line-clamp-2">{it.name}</div>
       <div className="flex items-center gap-1.5 mt-1 flex-wrap">

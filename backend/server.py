@@ -198,7 +198,7 @@ async def replays(sport: Optional[str] = None):
     if not await db.replays.estimated_document_count():
         await sportsmod.rescan_replays(db)
     q = {"sport": sport} if sport else {}
-    items = [{"id": d["_id"], **{k: d.get(k) for k in ("name", "url", "description", "sport", "kind")}}
+    items = [{"id": d["_id"], **{k: d.get(k) for k in ("name", "url", "description", "sport", "kind", "logo")}}
              async for d in db.replays.find(q).sort("name", 1)]
     meta = await db.livetv_meta.find_one({"_id": "replays"}) or {}
     counts = {r["_id"]: r["n"] async for r in db.replays.aggregate([{"$group": {"_id": "$sport", "n": {"$sum": 1}}}])}

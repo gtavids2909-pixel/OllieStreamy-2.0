@@ -24,14 +24,13 @@ import PlayerToolbar from '../components/livetv/PlayerToolbar';
 import { j, proxyFull, pushRecent, reducedMotion } from '../lib/livetv';
 import useLiveStore from '../lib/useLiveStore';
 import SportsHub from '../components/livetv/SportsHub';
-import FreeTvServices from '../components/livetv/FreeTvServices';
 import StatusTabs, { PRIMARY_CATEGORIES } from '../components/livetv/StatusTabs';
 import ServerPicker from '../components/livetv/ServerPicker';
 import LogoTile from '../components/LogoTile';
 import { seekBy, togglePlay } from '../components/player/SeekBar';
 
 // ----------------------------  Country row  ---------------------------------
-function CountryRow({ c, open, onToggle, q, categoryFilter, onPickChannel, activeChannelId, status }) {
+function CountryRow({ c, open, onToggle, q, categoryFilter, onPickChannel, activeChannelId, status, tick }) {
   const [state, setState] = useState({ loading: false, items: [], total: 0, page: 1 });
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -54,7 +53,7 @@ function CountryRow({ c, open, onToggle, q, categoryFilter, onPickChannel, activ
     };
     run();
     return () => { cancelled = true; };
-  }, [open, c.code, categoryFilter, q, refreshKey, status]);
+  }, [open, c.code, categoryFilter, q, refreshKey, status, tick]);
 
   const loadMore = useCallback(async () => {
     const nextPage = state.page + 1;
@@ -150,6 +149,11 @@ export default function LiveTVPage() {
   const [sport, setSport] = useState('');
   const [facets, setFacets] = useState({ status: {}, sports: {}, categories: {} });
   const [allFailed, setAllFailed] = useState(false);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 15 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
   const [safeMode, setSafeModeLocal] = useState(getSafeMode());
   useEffect(() => onSafeModeChange(setSafeModeLocal), []);
 
@@ -165,7 +169,7 @@ export default function LiveTVPage() {
         setLoadingCat(false);
       }
     })();
-  }, [status, cat]);
+  }, [status, cat, tick]);
 
   const sortedCountries = useMemo(() => {
     const arr = [...countries];
@@ -281,7 +285,7 @@ export default function LiveTVPage() {
             <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" /> Live
           </span>
           <span className="ml-auto text-xs text-zinc-400">
-            {countries.reduce((a, c) => a + c.count, 0).toLocaleString()} channels · {countries.length} countries · auto-refreshed daily
+            {countries.reduce((a, c) => a + c.count, 0).toLocaleString()} channels · {countries.length} countries · live status refreshed every 15 min
           </span>
         </div>
         <p className="text-zinc-400 mb-5 text-sm">
@@ -290,8 +294,6 @@ export default function LiveTVPage() {
         </p>
 
         <StatusTabs tab={tab} setTab={setTab} status={status} setStatus={setStatus} counts={facets.status} />
-
-        {tab === 'channels' && <FreeTvServices />}
 
         {/* Search + category chips */}
         {tab === 'channels' && <div className="grid md:grid-cols-[1fr_auto] gap-3 mb-5">
@@ -422,7 +424,7 @@ export default function LiveTVPage() {
         )}
 
         {tab === 'sports' && (
-          <SportsHub status={status} counts={facets.sports} sport={sport} setSport={setSport} onPick={pickChannel} activeId={channelFull?.id} />
+          <SportsHub tick={tick} status={status} counts={facets.sports} sport={sport} setSport={setSport} onPick={pickChannel} activeId={channelFull?.id} />
         )}
 
         {/* Country list */}
@@ -446,6 +448,7 @@ export default function LiveTVPage() {
                 onPickChannel={pickChannel}
                 activeChannelId={channelFull?.id}
                 status={status}
+                tick={tick}
               />
             ))
           )}

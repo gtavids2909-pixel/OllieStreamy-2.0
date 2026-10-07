@@ -26,6 +26,13 @@ sections.
 
 ## Changelog (latest first)
 
+### 2026-06 — More channels + 15-min live refresh
+- Added official FAST playlists (Pluto TV, Samsung TV Plus, Plex, Roku) → 17,591 channels; group-title country names mapped to codes; UK/GB code bug fixed.
+- Streams dead in 3 consecutive daily full probes are dropped at sync (`livetv_stream_health`).
+- Every 15 min: re-probe all off-air streams + sports/news/events; /livetv auto-reloads counts/lists every 15 min.
+- Replays now show each official channel's own YouTube avatar (og:image), favicon for web sources. Free TV services row removed.
+- Declined: scraping unlicensed sites from FMHY Live TV / Sports Replays lists.
+
 ### 2026-06 — Big upgrade (Live TV, Multi-View, palette, legal, sports, replays, admin)
 - Live TV: favourites/recent rows, HD badge, alive-first ordering, surfing (prev/next/random + keys), PiP, status tabs Live/Off-air/All with counts, primary_category filter (15 fixed buckets), Free TV services row, failover (alive→unchecked→dead, Next server, Retry all, 25s first-mirror timeout, console host log), custom seek bar (DVR, Go live, ±10s, keys) + CC menu (stream tracks, .srt/.vtt upload w/ delay, style prefs).
 - Sports tab inside /livetv (old /sports page removed → redirect): sport chips (server-side `sport` classification), TheSportsDB fixtures proxy (10 min cache), curated sports channels, link to /replays.
