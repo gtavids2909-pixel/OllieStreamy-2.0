@@ -1,0 +1,43 @@
+{
+  "summary": "End-to-end regression on OllieStreamy. Backend: 31/31 pytest tests pass (livetv facets/channels/countries/categories/channel/probe-status/proxy/sync, sports fixtures incl. 400 unknown-sport, replays list+filter, admin auth guard across 7 endpoints, admin stats, admin playlists CRUD, admin test-stream, wrong-token 401). Frontend (390x844 mobile first, plus 1920 desktop): All requested data-testids present and functional — Home has NO 'Continue Watching' row even with fs_watch_history seeded; footer has 'OllieStreamy. Data provided by TMDB.'; legal pages /about /contact /privacy /terms /dmca each render with Last-updated, numbered sections, legal-back-home; legal-email-link (mailto Joshea2090@gmail.com) present on contact/privacy/terms/dmca (not required on about per spec). Navbar at 1920 contains Multi-View & Replays, no Sports link. /sports correctly redirects to /livetv?tab=sports. /livetv shows livetv-main-tabs, livetv-status-tabs with counts (Live 7,811 / Off-air 4,572 / All 12,383), livetv-category-select, free-tv-services row, country toggle US → 178 channel cards each with livetv-channel-fav-*. Clicking a channel opens player with livetv-toolbar, livetv-server-picker, livetv-next-server-btn, player-seekbar, player-cc-btn (opens menu with player-cc-file-input accepting .srt/.vtt), livetv-player-fav-btn (populates livetv-favourites-row), livetv-player-title, livetv-surf-position. Keyboard N changes channel (title updated to 'Fox'). /livetv?tab=sports has sport-chip-football, sports-channels-grid, fixtures-section, fixtures-sport-* (8 chips), sports-replays-link, curated-sports. /replays has title, 'Last updated' timestamp, archive-nascar linking classics.nascar.com, 13 sport tabs, search input, YouTube cards. /multiview empty state → add-btn → search 'fox' returns 13 results → selecting one updates URL to ?c=Fox.us and renders multiview-audio-0. Command palette Ctrl+K opens, typing 'news' shows both MOVIES & TV and LIVE CHANNELS groups, Esc closes. Login (form inside <main>) submits, redirects to /, nav-user-name='tester' and nav-logout-btn appear; mobile hamburger menu shows user and Logout. nav-mobile-search-btn opens command-palette. /admin accepts token → full dashboard (stat cards 12,383 channels/184 countries/10,697 alive/8,392 dead; admin-playlists-manager, admin-replays-rescan-btn, admin-reannotate-btn, admin-stream-tester). No console errors on tested pages.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/admin/playlists", "issue": "Returns 422 (missing required query `url`) when called without X-Admin-Token, instead of 401 — auth check should run before query validation. Low priority (still rejects unauthenticated callers)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Navbar @1920", "issues": ["The Discord icon/label visually overlaps the Login label (collision between items), e.g. renders as 'iDiscord Login'. Labels technically don't wrap but the row is too tight. Consider reducing icon gap or hiding Discord label at <~1440px."]},
+      {"screen": "Global <select> (livetv-category-select etc.)", "issues": ["Pre-existing (iter_1) React hydration warning: '<span> cannot be a child of <option>'. Remove <span> wrappers inside <option>."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Move auth check before Pydantic/query validation on DELETE /api/admin/playlists so unauth returns 401 not 422.",
+    "(Optional) Tighten navbar spacing at 1920 so Discord icon does not overlap Login label.",
+    "(Pre-existing) Remove <span> inside <option> to clear hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "server.py: `logger` is still configured AFTER route definitions reference it (same as iter_1). Works but should move logging.basicConfig to top.",
+    "server.py uses deprecated FastAPI @app.on_event('startup'/'shutdown'); migrate to lifespan context manager.",
+    "/api/livetv/channel/{id} with fresh=true re-probes mirrors on every call (12s timeout). Already noted iter_1 — consider short-caching probe results per channel.",
+    "Admin DELETE route reads `url` as required query — if missing without token it returns 422; order of validation masks the auth error.",
+    "Navbar: single-line nav at 1920 already crowded; icons overlapping Login label visually. Not functional but polish-worthy."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/iteration_2.json"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "ADMIN_TOKEN=H2T0-d9oq6NpjTeKVSt4xysxiq0zEk59 (header X-Admin-Token). Mock login accepts any email/password.",
+  "seed_data_creation": "Transient only: created & deleted TEST_playlist via /api/admin/playlists CRUD; seeded fs_watch_history in localStorage to verify Continue Watching is absent.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend tests at /app/backend/tests/backend_test.py (31 tests, run `REACT_APP_BACKEND_URL=https://rebuild-fresh-2.preview.emergentagent.com ADMIN_TOKEN=H2T0-d9oq6NpjTeKVSt4xysxiq0zEk59 pytest backend/tests/backend_test.py -n 0`). Do NOT call /api/livetv/sync?force=true or /api/admin/sync — wipes probe data and triggers a 15-min re-probe. For UI, player testids only appear after clicking a channel card AND waiting ~5s for HLS to initialize. Login button selector: use `main form button[type=submit]` to avoid matching the navbar search arrow. Admin unlock: use `main input` + `main button[type=submit]` to avoid the global search bar. Live streams are 3rd-party and may 404 in headless browser — not an app bug."
+}

@@ -319,8 +319,10 @@ async def admin_add_playlist(request: Request, body: PlaylistIn):
 
 
 @api_router.delete("/admin/playlists")
-async def admin_remove_playlist(request: Request, url: str):
+async def admin_remove_playlist(request: Request, url: Optional[str] = None):
     require_admin(request)
+    if not url:
+        raise HTTPException(status_code=400, detail="url is required")
     await db.livetv_playlists.delete_one({"_id": url})
     return {"ok": True}
 

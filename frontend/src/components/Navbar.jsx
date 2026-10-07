@@ -86,9 +86,9 @@ export default function Navbar() {
 
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
         e.preventDefault();
-        inputRef.current?.focus();
+        openPalette();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -148,22 +148,21 @@ export default function Navbar() {
                 key={item.to}
                 to={item.to}
                 data-testid={`nav-link-${item.to.slice(1) || 'home'}`}
-                className={`flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`flex items-center px-2 2xl:px-2.5 py-2 rounded-lg text-[13px] 2xl:text-sm font-medium whitespace-nowrap transition-colors ${
                   active
                     ? 'text-white bg-white/10'
                     : 'text-zinc-300 hover:text-white hover:bg-white/5'
                 }`}
               >
-                <Icon className="w-4 h-4 hidden 2xl:block" />
                 {item.label}
               </Link>
             );
           })}
           <Link
             to="/discord"
-            className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
+            className="flex items-center px-2 2xl:px-2.5 py-2 rounded-lg text-[13px] 2xl:text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors"
           >
-            <svg className="w-4 h-4 hidden 2xl:block" viewBox="0 0 24 24" fill="currentColor">
+            <svg className="hidden" viewBox="0 0 24 24" fill="currentColor">
               <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.099.246.197.373.291a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.84 19.84 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
             </svg>
             Discord
@@ -214,84 +213,35 @@ export default function Navbar() {
           <button
             onClick={openPalette}
             data-testid="nav-palette-btn"
-            className="2xl:hidden p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-white/5"
+            className="flex items-center gap-2 p-2 2xl:pl-3 2xl:pr-2 h-9 rounded-full text-zinc-300 hover:text-white bg-white/0 2xl:bg-white/5 2xl:border 2xl:border-white/10 hover:bg-white/10 transition-colors"
             aria-label="Search (Ctrl+K)"
             title="Search (Ctrl+K)"
           >
             <Search className="w-4 h-4" />
+            <span className="hidden 2xl:inline text-sm">Search</span>
+            <kbd className="hidden 2xl:inline text-[10px] font-mono px-1.5 py-0.5 rounded bg-white/10 text-zinc-400">Ctrl K</kbd>
           </button>
           {user ? (
             <>
-              <span className="flex items-center gap-1.5 px-2 text-sm font-medium text-white whitespace-nowrap max-w-[140px]" data-testid="nav-user-name">
+              <span className="flex items-center gap-1.5 px-2 text-sm font-medium text-white whitespace-nowrap max-w-[90px] 2xl:max-w-[140px]" data-testid="nav-user-name">
                 <User className="w-4 h-4 text-[#a8aeff] shrink-0" /><span className="truncate">{user.name}</span>
               </span>
-              <button onClick={logout} data-testid="nav-logout-btn" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
-                <LogOut className="w-4 h-4" /> Logout
+              <button onClick={logout} data-testid="nav-logout-btn" aria-label="Logout" title="Logout" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
+                <LogOut className="w-4 h-4" /> <span className="hidden 2xl:inline">Logout</span>
               </button>
             </>
           ) : (
             <>
-              <Link to="/login" data-testid="nav-login-link" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
-                <LogIn className="w-4 h-4" /> Login
+              <Link to="/login" data-testid="nav-login-link" aria-label="Login" title="Login" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
+                <LogIn className="w-4 h-4" /> <span className="hidden 2xl:inline">Login</span>
               </Link>
-              <Link to="/signup" data-testid="nav-signup-link" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
-                <UserPlus className="w-4 h-4" /> Sign Up
+              <Link to="/signup" data-testid="nav-signup-link" aria-label="Sign Up" title="Sign Up" className="flex items-center gap-1.5 px-2.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap text-zinc-300 hover:text-white hover:bg-white/5 transition-colors">
+                <UserPlus className="w-4 h-4" /> <span className="hidden 2xl:inline">Sign Up</span>
               </Link>
             </>
           )}
         </div>
 
-        <form onSubmit={handleSubmit} className="relative hidden 2xl:block shrink-0">
-          <div className="relative flex items-center">
-            <Search className="absolute left-3 w-4 h-4 text-zinc-400 pointer-events-none" />
-            <input
-              ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => results.length && setShowResults(true)}
-              onBlur={() => setTimeout(() => setShowResults(false), 200)}
-              placeholder="Search... (Press /)"
-              className="w-64 h-10 pl-9 pr-12 rounded-full bg-white/5 border border-white/10 text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-[#7c83ff]/60 focus:bg-white/10 transition-colors"
-            />
-            <button
-              type="submit"
-              className="absolute right-1 w-8 h-8 rounded-full bg-white/10 hover:bg-[#7c83ff]/30 flex items-center justify-center transition-colors"
-              aria-label="Search"
-            >
-              <ArrowRight className="w-4 h-4 text-white" />
-            </button>
-          </div>
-          {showResults && results.length > 0 && (
-            <div className="absolute top-12 right-0 w-[420px] max-h-[70vh] overflow-y-auto bg-[#101018] border border-white/10 rounded-xl shadow-2xl py-2">
-              {results.map((r) => (
-                <Link
-                  key={`${r.media_type}-${r.id}`}
-                  to={`/${r.media_type}/${r.id}`}
-                  className="flex items-center gap-3 px-3 py-2 hover:bg-white/5 transition-colors"
-                  onClick={() => setShowResults(false)}
-                >
-                  <img
-                    src={IMG(r.poster_path || r.backdrop_path, 'w92')}
-                    alt={r.title || r.name}
-                    className="w-10 h-14 object-cover rounded"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-white truncate font-medium">
-                      {r.title || r.name}
-                    </div>
-                    <div className="text-xs text-zinc-400 flex items-center gap-2">
-                      <span className="uppercase">{r.media_type}</span>
-                      <span>
-                        {(r.release_date || r.first_air_date || '').slice(0, 4)}
-                      </span>
-                      {r.vote_average ? <span>★ {r.vote_average.toFixed(1)}</span> : null}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </form>
 
         <div className="xl:hidden ml-auto flex items-center gap-1">
           <button

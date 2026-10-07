@@ -26,6 +26,15 @@ sections.
 
 ## Changelog (latest first)
 
+### 2026-06 — Big upgrade (Live TV, Multi-View, palette, legal, sports, replays, admin)
+- Live TV: favourites/recent rows, HD badge, alive-first ordering, surfing (prev/next/random + keys), PiP, status tabs Live/Off-air/All with counts, primary_category filter (15 fixed buckets), Free TV services row, failover (alive→unchecked→dead, Next server, Retry all, 25s first-mirror timeout, console host log), custom seek bar (DVR, Go live, ±10s, keys) + CC menu (stream tracks, .srt/.vtt upload w/ delay, style prefs).
+- Sports tab inside /livetv (old /sports page removed → redirect): sport chips (server-side `sport` classification), TheSportsDB fixtures proxy (10 min cache), curated sports channels, link to /replays.
+- /replays (official YouTube sports channels parsed daily from superlincoln953/Free-Official-Youtube-Content README) + NASCAR Classics archive.
+- /multiview (4 tiles, single audio, URL+localStorage), Ctrl/Cmd+K command palette, navbar user/logout + no wrapping, legal pages (/about /contact /privacy /terms /dmca), scroll-to-top, reduced-motion CSS.
+- /admin protected by ADMIN_TOKEN (X-Admin-Token): stats, forced sync, priority probe, stream tester, extra playlists CRUD with per-URL results, replays rescan, re-classify. `/api/livetv/sync?force=true` now requires the token.
+- Logo rule: initials tile when no own logo; shared-logo (20+ unrelated names) cleanup in sync (0 found).
+- Backlog: movie/TV iframe "Try another server" after 12s; preview thumbnails; navbar "Watch History" could be shortened.
+
 ### 2026-06 — Live TV bulk channel import
 - Sync now merges 5 default playlists (iptv-org index/country/category/language + Free-TV) plus `$LIVETV_EXTRA_M3U`; streams with no channel record become `x:` channels grouped by name+country (adult entries filtered); probe concurrency 40; `/api/livetv/sync?force=true` forces a re-sync.
 
